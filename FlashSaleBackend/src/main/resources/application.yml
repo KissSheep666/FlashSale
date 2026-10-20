@@ -1,0 +1,64 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: FlashSaleBackend
+
+  # MySQL
+  # 密码通过环境变量提供，不要写进仓库：启动前设置 MYSQL_PASSWORD
+  #   PowerShell:  $env:MYSQL_PASSWORD = "你的密码"
+  #   IDE:         运行配置 → Environment variables 里加 MYSQL_PASSWORD
+  datasource:
+    url: jdbc:mysql://localhost:3306/flashsale?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # Redis
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 1000
+          max-idle: 200
+          min-idle: 50
+          max-wait: 3000ms
+
+  # RabbitMQ
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        concurrency: 10
+        max-concurrency: 20
+        prefetch: 1
+        acknowledge-mode: manual
+    template:
+      retry:
+        enabled: true
+        initial-interval: 1000ms
+
+# MyBatis-Plus
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.kisssheep.flashsalebackend.entity
+  global-config:
+    db-config:
+      id-type: auto
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# Sa-Token 配置
+sa-token:
+  token-name: Authorization        # 从 Authorization 头读取 Token
+  timeout: 1800                    # Token 有效期 30 分钟（单位：秒）
+  is-read-header: true             # 从请求头读取 Token
+  is-log: true                     # 打印 Sa-Token 相关日志

@@ -1,0 +1,17 @@
+# JVM 崩溃转储（含本机路径 / 主机名 / 内网 IP，勿入库）
+hs_err_pid*.log
+replay_pid*.log
+
+# 日志文件
+*.log
+
+# 构建产物
+target/
+node_modules/
+dist/
+
+# 本地配置（含数据库密码等，勿入库）
+application-local.yml
+application-local.properties
+.env
+.env.*

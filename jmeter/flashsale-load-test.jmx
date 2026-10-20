@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="FlashSale 秒杀压测计划">
+      <boolProp name="TestPlan.serialize_threadgroups">true</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments">
+        <collectionProp name="Arguments.arguments">
+          <elementProp name="BASE_URL" elementType="Argument">
+            <stringProp name="Argument.name">BASE_URL</stringProp>
+            <stringProp name="Argument.value">localhost:8080</stringProp>
+          </elementProp>
+          <elementProp name="GOODS_ID" elementType="Argument">
+            <stringProp name="Argument.name">GOODS_ID</stringProp>
+            <stringProp name="Argument.value">1</stringProp>
+          </elementProp>
+        </collectionProp>
+      </elementProp>
+    </TestPlan>
+
+    <hashTree>
+      <!-- ==================== HTTP 请求默认值 ==================== -->
+      <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP 请求默认值">
+        <stringProp name="HTTPSampler.domain">${BASE_URL}</stringProp>
+        <stringProp name="HTTPSampler.protocol">http</stringProp>
+        <stringProp name="HTTPSampler.charset">UTF-8</stringProp>
+      </ConfigTestElement>
+      <hashTree/>
+
+      <!-- ==================== 第1步：登录获取Token ==================== -->
+      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup" testname="01-登录获取Token">
+        <intProp name="ThreadGroup.num_threads">@@SETUP_THREADS@@</intProp>
+        <intProp name="ThreadGroup.ramp_time">@@SETUP_RAMPUP@@</intProp>
+      </SetupThreadGroup>
+      <hashTree>
+        <!-- CSV 数据文件（模拟多用户） -->
+        <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="用户数据CSV">
+          <stringProp name="filename">users.csv</stringProp>
+          <stringProp name="fileEncoding">UTF-8</stringProp>
+          <stringProp name="variableNames">phone,password</stringProp>
+          <boolProp name="ignoreFirstLine">true</boolProp>
+        </CSVDataSet>
+        <hashTree/>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="POST /api/user/login">
+          <stringProp name="HTTPSampler.path">/api/user/login</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp elementType="Argument">
+                <stringProp name="Argument.name"></stringProp>
+                <stringProp name="Argument.value">{"phone":"${phone}","password":"${password}"}</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Content-Type头">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+        </hashTree>
+
+        <!-- 从响应中提取 Token -->
+        <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取Token">
+          <stringProp name="JSONPostProcessor.referenceNames">token</stringProp>
+          <stringProp name="JSONPostProcessor.jsonPathExprs">$.data</stringProp>
+        </JSONPostProcessor>
+        <hashTree/>
+
+        <!-- 将 Token 存入 JMeter 全局属性（跨线程组共享） -->
+        <BeanShellPreProcessor guiclass="TestBeanGUI" testclass="BeanShellPreProcessor" testname="Token写入属性">
+          <stringProp name="BeanShellPreProcessor.parameters">${token}</stringProp>
+          <stringProp name="BeanShellPreProcessor.filename"></stringProp>
+          <stringProp name="BeanShellPreProcessor.script">
+String t = vars.get("token");
+if (t != null &amp;&amp; !t.isEmpty()) {
+    props.put("global_token_" + (ctx.getThreadNum() % 500), t);
+}
+          </stringProp>
+        </BeanShellPreProcessor>
+        <hashTree/>
+      </hashTree>
+
+      <!-- ==================== 第2步：秒杀压测 ==================== -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="02-秒杀请求（主压测）">
+        <intProp name="ThreadGroup.num_threads">@@THREADS@@</intProp>
+        <intProp name="ThreadGroup.ramp_time">@@RAMPUP@@</intProp>
+        <intProp name="ThreadGroup.duration">@@DURATION@@</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+      </ThreadGroup>
+      <hashTree>
+        <!-- 每个线程随机取一个 Token -->
+        <BeanShellPreProcessor guiclass="TestBeanGUI" testclass="BeanShellPreProcessor" testname="随机取Token">
+          <stringProp name="BeanShellPreProcessor.parameters"></stringProp>
+          <stringProp name="BeanShellPreProcessor.filename"></stringProp>
+          <stringProp name="BeanShellPreProcessor.script">
+int idx = ctx.getThreadNum() % 500;
+String t = props.get("global_token_" + idx);
+if (t != null &amp;&amp; !t.isEmpty()) {
+    vars.put("thread_token", t);
+} else {
+    log.warn("未找到Token idx=" + idx);
+}
+          </stringProp>
+        </BeanShellPreProcessor>
+        <hashTree/>
+
+        <!-- 秒杀请求 -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="POST /api/seckill/{goodsId}">
+          <stringProp name="HTTPSampler.path">/api/seckill/${GOODS_ID}</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Auth头">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp elementType="Header">
+                <stringProp name="Header.name">Authorization</stringProp>
+                <stringProp name="Header.value">Bearer ${thread_token}</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+        </hashTree>
+
+        <!-- 秒杀结果轮询 -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="GET /api/order/result/{goodsId}">
+          <stringProp name="HTTPSampler.path">/api/order/result/${GOODS_ID}</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Auth头">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp elementType="Header">
+                <stringProp name="Header.name">Authorization</stringProp>
+                <stringProp name="Header.value">Bearer ${thread_token}</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+        </hashTree>
+
+        <!-- 定时器：每次迭代间隔 200ms -->
+        <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="间隔200ms">
+          <stringProp name="ConstantTimer.delay">200</stringProp>
+        </ConstantTimer>
+        <hashTree/>
+      </hashTree>
+
+      <!-- ==================== 监听器 ==================== -->
+      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="察看结果树">
+        <boolProp name="ResultCollector.error_logging">true</boolProp>
+      </ResultCollector>
+      <hashTree/>
+
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="聚合报告">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+      </ResultCollector>
+      <hashTree/>
+
+      <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="汇总报告">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+      </ResultCollector>
+      <hashTree/>
+
+      <ResultCollector guiclass="GraphVisualizer" testclass="ResultCollector" testname="图形结果">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+      </ResultCollector>
+      <hashTree/>
+
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>
